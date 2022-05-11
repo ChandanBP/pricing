@@ -1,0 +1,70 @@
+plugins {
+	id 'org.springframework.boot' version '2.6.6'
+	id 'io.spring.dependency-management' version '1.0.11.RELEASE'
+	id 'java'
+}
+
+group = 'com.catalogue'
+version = '0.0.1-SNAPSHOT'
+sourceCompatibility = '11'
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-data-mongodb'
+	implementation 'org.springframework.boot:spring-boot-starter-data-mongodb-reactive'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+
+	// https://mvnrepository.com/artifact/org.apache.spark/spark-core
+	implementation group: 'org.apache.spark', name: 'spark-core_2.12', version: '3.2.1'
+
+
+	// https://mvnrepository.com/artifact/org.apache.spark/spark-sql
+	compileOnly group: 'org.apache.spark', name: 'spark-sql_2.12', version: '3.2.1'
+
+	
+	// https://mvnrepository.com/artifact/org.mongodb.spark/mongo-spark-connector
+    implementation group: 'org.mongodb.spark', name: 'mongo-spark-connector_2.12', version: '3.0.2'
+    
+    // https://mvnrepository.com/artifact/org.codehaus.janino/janino
+	implementation group: 'org.codehaus.janino', name: 'janino', version: '3.0.16'
+	
+	// https://mvnrepository.com/artifact/org.codehaus.janino/commons-compiler
+	implementation group: 'org.codehaus.janino', name: 'commons-compiler', version: '3.0.16'
+	
+    // https://mvnrepository.com/artifact/com.redislabs/spark-redis
+	implementation group: 'com.redislabs', name: 'spark-redis_2.12', version: '2.4.2'
+
+	
+	// https://mvnrepository.com/artifact/org.scala-lang/scala-library
+	implementation group: 'org.scala-lang', name: 'scala-library', version: '2.12.15'
+
+	
+	// https://mvnrepository.com/artifact/org.scala-lang/scala-compiler
+	implementation group: 'org.scala-lang', name: 'scala-compiler', version: '2.12.15'
+
+
+	// https://mvnrepository.com/artifact/org.scala-lang/scala-reflect
+	implementation group: 'org.scala-lang', name: 'scala-reflect', version: '2.12.15'
+	
+	// https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-data-redis
+	implementation group: 'org.springframework.boot', name: 'spring-boot-starter-data-redis', version: '2.6.7'
+	
+	// https://mvnrepository.com/artifact/org.mongodb/bson
+	implementation group: 'org.mongodb', name: 'bson', version: '4.3.4'
+
+	
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'io.projectreactor:reactor-test'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+configurations {
+    all*.exclude module : 'spring-boot-starter-logging'
+    all*.exclude module : 'logback-classic'
+}
