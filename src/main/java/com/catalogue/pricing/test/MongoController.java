@@ -5,6 +5,7 @@ import org.bson.Document;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
+import static org.apache.spark.sql.functions.struct;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.Random;
 
 import com.mongodb.spark.config.ReadConfig;
+import com.mongodb.spark.config.WriteConfig;
 
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
@@ -29,6 +31,8 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.MapType;
+import org.apache.spark.sql.types.Metadata;
+import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
 import com.catalogue.pricing.entities.DistanceMap;
@@ -50,6 +54,7 @@ import scala.Tuple2;
 import scala.reflect.internal.Trees.Return;
 
 import org.apache.spark.sql.api.java.UDF2;
+import org.apache.spark.sql.api.java.UDF3;
 import org.apache.spark.sql.expressions.UserDefinedFunction;
 import static org.apache.spark.sql.functions.udf;
 
@@ -138,18 +143,10 @@ public class MongoController implements Serializable{
     }
     
     
+    
     @GetMapping(value = {"/price/product/{pid}"})
     public void computeMinPrice(@PathVariable String pid,@RequestParam String zone) {
     	
-    	Map<String, String>overrideMap = new HashMap<>();
-    	overrideMap.put(COLLECTION, PINCODE);
-    	
-    	ReadConfig readConfig = ReadConfig.create(sparkConf).withOptions(overrideMap);
-    	Dataset<Row> pincodes = MongoSpark.load(sparkContext,readConfig).withPipeline(Collections.singletonList(
-                    Document.parse(" { $match : { zone : \"South\" } }")
-    		        )).toDF();
-    	
-    	pincodes.limit(1).show();
     	
     	zone = zone.toLowerCase();
     	StringBuilder sBuilder = new StringBuilder();
@@ -157,88 +154,106 @@ public class MongoController implements Serializable{
     	sBuilder.append("zoneprices");
     	String collection = sBuilder.toString();
     	
-    	
+    	Map<String, String>overrideMap = new HashMap<>();
     	overrideMap.put(COLLECTION, collection);
-    	readConfig = readConfig.withOptions(overrideMap);
     	
     	
-    	StringBuilder queryBuilder = new StringBuilder();
-    	queryBuilder.append("{");
-    	queryBuilder.append("$match");
-    	queryBuilder.append(":");
-    	queryBuilder.append("{");
-    	queryBuilder.append("product");
-    	queryBuilder.append(":");
-    	queryBuilder.append("ObjectId(\\\"");
-    	queryBuilder.append(pid);
-    	queryBuilder.append("\\\") } }");
-    	Dataset<Row> zonePrices =  MongoSpark.load(sparkContext,readConfig).withPipeline(Collections.singletonList(
-	              Document.parse(" { $match : { product : ObjectId(\"6242b346ba42fdc0fab2bc8a\") } }")
-			        )).toDF();
+    	ReadConfig readConfig = ReadConfig.create(sparkConf).withOptions(overrideMap);
+    	Dataset<Row> zonePrices = MongoSpark.load(sparkContext,readConfig).withPipeline(Collections.singletonList(
+                    Document.parse("{ $match : { product : ObjectId(\""+pid+"\")}}")
+    		        )).toDF();
     	
     	
-    	
-    	UserDefinedFunction  distanceFunction =  udf(new UDF2<Object,String, Double>() {
+    	UserDefinedFunction  distanceFunction =  udf(new UDF3<Object,Integer,Double, Double>() {
 
     		
 			@Override
-			public Double call(Object t1,String t2) throws Exception {
+			public Double call(Object t1,Integer t2,Double sellingPrice) throws Exception {
 				
-//				sparkSession.read()
-//				.format("org.apache.spark.sql.redis")
-//				.option("table", "distance")
-//				.option("key.column", "src_dest").load().show();
-				
-				return 72.5;
+				double distances[] = {138.15,35.77,166.93,17.09,25.44,87.66,110.54,54.55,43.21,78.12};
+            	Random random = new Random();
+            	double distance = distances[random.nextInt(distances.length)];
+				return distance+sellingPrice;
 			}
 		}, DataTypes.DoubleType);
     	distanceFunction = distanceFunction.asNonNullable();
     	sparkSession.udf().register("distanceFunction", distanceFunction);
     	
     	
-    	List<Row>list = new ArrayList<Row>();
-    	list.add(RowFactory.create("6242b346ba42fdc0fab2bc8a"));
-    	StructType structType = new StructType();
-    	structType = structType.add("destPin", DataTypes.StringType,false);
-    	Dataset<Row>pinDF = sparkSession.createDataFrame(list, structType).toDF();
-    	zonePrices = pinDF.join(zonePrices);
-
-    	zonePrices.limit(10).foreach(row->{
-    		
-    		double distances[] = {138.15,35.77,166.93,17.09,25.44,87.66,110.54,54.55,43.21,78.12};
-    		Random random = new Random();
-    		double distance = distances[random.nextInt(distances.length)];
-    		
-    		List<Row>list1 = new ArrayList<Row>();
-        	list.add(RowFactory.create(distance));
-        	StructType st = new StructType();
-        	
-    	});
+    	overrideMap = new HashMap<>();
+    	overrideMap.put(COLLECTION, "productinfos");
+    	readConfig = ReadConfig.create(sparkConf).withOptions(overrideMap);
     	
-//    	zonePrices.filter(zonePrices.col("leastPrice.sellingPrice").isNotNull()).
-//    			   filter(zonePrices.col("leastPrice.quantity").$greater(0)).
-//    			   withColumn("distance", functions.call_udf("distanceFunction", zonePrices.col("pincode"),zonePrices.col("destPin"))).
-//    			   sort(zonePrices.col("leastPrice.sellingPrice")).
-//    			   limit(1).
-//    			   show();
+    	Dataset<Row>productDataset = MongoSpark.load(sparkContext,readConfig).withPipeline(Collections.singletonList(
+                Document.parse("{ $match : { _id : ObjectId(\""+pid+"\")}}")
+		        )).toDF().limit(1);
     	
-//    	UserDefinedFunction random = udf(new UDF2<String, String, Double>() {
-//
-//			@Override
-//			public Double call(String t1, String t2) throws Exception {
-//				// TODO Auto-generated method stub
-//				System.out.println(t1);
-//				System.out.println(t2);
-//				return 35.77;
-//			}
+    	if(!productDataset.isEmpty()) {
+    		
+    		productDataset = productDataset.select(productDataset.col("_id"));
+    		productDataset.show();
+    		
+    		String colName = "prices."+560001+"";
+    		
+    		StructType details = new StructType(new StructField[]{
+    			    new StructField("type", DataTypes.StringType, false, Metadata.empty()),
+    			    new StructField("price", DataTypes.DoubleType, false, Metadata.empty())
+    			   });
+    		
+    		StructType recordType = new StructType();
+    		recordType = recordType.add(colName, details, false);
+    		
+    		
+    		List<Row>l = new ArrayList<>();
+    		//l.add(RowFactory.create(RowFactory.create(RowFactory.create("FALCON",14750.32))));
+    		l.add(RowFactory.create(RowFactory.create("FALCON",14750.32)));
+    		Dataset<Row>df = sparkSession.createDataFrame(l, recordType).toDF();
+    		productDataset = productDataset.join(df);
+    		
+//    		productDataset = productDataset.withColumn(colName, functions.to_json(functions.struct(productDataset.col("type"),productDataset.col("price")))).drop("type").drop("price");
+    		productDataset.show();
+    		
+    		
+    		Map<String, String> writeOverrides = new HashMap<String, String>();
+    		writeOverrides.put("spark.mongodb.output.uri", "mongodb://127.0.0.1/catalogue.productinfos");
+    		writeOverrides.put("collection", "productinfos");
+    	    writeOverrides.put("writeConcern.w", "majority");
+    	    writeOverrides.put("replaceDocument", "false");
+    	    
+    	    WriteConfig writeConfig = WriteConfig.create(sparkContext).withOptions(writeOverrides);
+    	    MongoSpark.save(productDataset,writeConfig);
+    	}
+    	
+    	
+    	//int destPincodes[] = {560079,110007,711114};
+//    	int destPincodes[] = {560079};
+//    	for(int destPin: destPincodes) { // Needs to be changed, have to fetch destination pincodes from mongodb
 //    		
-//		}, null);
-//    	random.asNondeterministic();
-//    	sparkSession.udf().register("random", random);    	
-    	
-//    	UserDefinedFunction random = udf((pin1,pin2)->Math.random(), 
-//		DataTypes.DoubleType);
-    	//Dataset<Integer> years = zonePrices.map((Function1<Row, Integer>) row -> row.<Integer>getAs("YEAR"), Encoders.INT());
+//    		List<Row>list = new ArrayList<Row>();
+//        	list.add(RowFactory.create(destPin));
+//        	StructType structType = new StructType();
+//        	structType = structType.add(String.valueOf(destPin), DataTypes.IntegerType,false);
+//        	Dataset<Row>pinDF = sparkSession.createDataFrame(list, structType).toDF();
+//        	zonePrices = pinDF.join(zonePrices);
+//    		
+//        	try {
+//        		
+//        		zonePrices = zonePrices.filter(zonePrices.col("leastPrice.sellingPrice").isNotNull()).
+//        		filter(zonePrices.col("leastPrice.quantity").$greater(0)).
+//        		withColumn(String.valueOf(destPin), functions.call_udf("distanceFunction", 
+//        				zonePrices.col("pincode"),
+//        				zonePrices.col(String.valueOf(destPin)),
+//        				zonePrices.col("leastPrice.sellingPrice"))).
+//        		sort(zonePrices.col(String.valueOf(destPin))).
+//        		limit(1);
+//        		
+//        		
+//        		System.out.println("App name"+sparkContext.appName());
+//        		zonePrices = zonePrices.drop(zonePrices.col(String.valueOf(destPin)));
+//			} catch (Exception e) {
+//				e.printStackTrace();
+//			}
+//    	}
     }
     
     public double getDistance() {

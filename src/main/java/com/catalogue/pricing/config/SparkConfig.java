@@ -43,6 +43,7 @@ public class SparkConfig {
         	      .master("local")
         	      .appName(APP_NAME)
         	      .config(SPARK_MONGO_INPUT_URI, "mongodb://127.0.0.1/catalogue.categories")
+        	      .config("spark.mongodb.output.uri", "mongodb://127.0.0.1/catalogue.products")
         	      .getOrCreate();
     }
 	
