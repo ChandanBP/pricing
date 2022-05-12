@@ -190,70 +190,68 @@ public class MongoController implements Serializable{
     	
     	if(!productDataset.isEmpty()) {
     		
-    		productDataset = productDataset.select(productDataset.col("_id"));
-    		productDataset.show();
-    		
-    		String colName = "prices."+560001+"";
-    		
     		StructType details = new StructType(new StructField[]{
     			    new StructField("type", DataTypes.StringType, false, Metadata.empty()),
     			    new StructField("price", DataTypes.DoubleType, false, Metadata.empty())
     			   });
     		
-    		StructType recordType = new StructType();
-    		recordType = recordType.add(colName, details, false);
     		
     		
-    		List<Row>l = new ArrayList<>();
-    		//l.add(RowFactory.create(RowFactory.create(RowFactory.create("FALCON",14750.32))));
-    		l.add(RowFactory.create(RowFactory.create("FALCON",14750.32)));
-    		Dataset<Row>df = sparkSession.createDataFrame(l, recordType).toDF();
-    		productDataset = productDataset.join(df);
-    		
-//    		productDataset = productDataset.withColumn(colName, functions.to_json(functions.struct(productDataset.col("type"),productDataset.col("price")))).drop("type").drop("price");
-    		productDataset.show();
-    		
-    		
-    		Map<String, String> writeOverrides = new HashMap<String, String>();
-    		writeOverrides.put("spark.mongodb.output.uri", "mongodb://127.0.0.1/catalogue.productinfos");
-    		writeOverrides.put("collection", "productinfos");
-    	    writeOverrides.put("writeConcern.w", "majority");
-    	    writeOverrides.put("replaceDocument", "false");
-    	    
-    	    WriteConfig writeConfig = WriteConfig.create(sparkContext).withOptions(writeOverrides);
-    	    MongoSpark.save(productDataset,writeConfig);
+    	    int destPincodes[] = {560079,110007,711114};
+        	for(int destPin: destPincodes) { // Needs to be changed, have to fetch destination pincodes from mongodb
+        		
+        		List<Row>list = new ArrayList<Row>();
+            	list.add(RowFactory.create(destPin));
+            	StructType structType = new StructType();
+            	structType = structType.add(String.valueOf(destPin), DataTypes.IntegerType,false);
+            	Dataset<Row>pinDF = sparkSession.createDataFrame(list, structType).toDF();
+            	zonePrices = pinDF.join(zonePrices);
+        		
+            	try {
+            		
+            		zonePrices = zonePrices.
+            					 filter(zonePrices.col("leastPrice.sellingPrice").isNotNull()).
+            					 filter(zonePrices.col("leastPrice.quantity").$greater(0)).
+            					 withColumn(String.valueOf(destPin), functions.call_udf("distanceFunction", 
+					            				zonePrices.col("pincode"),
+					            				zonePrices.col(String.valueOf(destPin)),
+					            				zonePrices.col("leastPrice.sellingPrice"))).
+            					 sort(zonePrices.col(String.valueOf(destPin))).
+            					 limit(1);
+            		
+            		zonePrices.show();
+            		Double minPrice = zonePrices.first().getAs(String.valueOf(destPin));
+            		
+            		
+            		productDataset = productDataset.select(productDataset.col("_id"));
+            		
+            		String colName = "prices."+destPin+"";
+            		StructType recordType = new StructType();
+            		recordType = recordType.add(colName, details, false);
+            		
+            		
+            		List<Row>l = new ArrayList<>();
+            		l.add(RowFactory.create(RowFactory.create("FALCON",minPrice)));
+            		Dataset<Row>df = sparkSession.createDataFrame(l, recordType).toDF();
+            		productDataset = productDataset.join(df);
+            		
+            		Map<String, String> writeOverrides = new HashMap<String, String>();
+            		writeOverrides.put("spark.mongodb.output.uri", "mongodb://127.0.0.1/catalogue.productinfos");
+            		writeOverrides.put("collection", "productinfos");
+            	    writeOverrides.put("writeConcern.w", "majority");
+            	    writeOverrides.put("replaceDocument", "false");
+            	    
+            	    WriteConfig writeConfig = WriteConfig.create(sparkContext).withOptions(writeOverrides);
+            	    MongoSpark.save(productDataset,writeConfig);
+            		
+            		
+            		zonePrices = zonePrices.drop(zonePrices.col(String.valueOf(destPin)));
+            		
+    			} catch (Exception e) {
+    				e.printStackTrace();
+    			}
+        	}
     	}
-    	
-    	
-    	//int destPincodes[] = {560079,110007,711114};
-//    	int destPincodes[] = {560079};
-//    	for(int destPin: destPincodes) { // Needs to be changed, have to fetch destination pincodes from mongodb
-//    		
-//    		List<Row>list = new ArrayList<Row>();
-//        	list.add(RowFactory.create(destPin));
-//        	StructType structType = new StructType();
-//        	structType = structType.add(String.valueOf(destPin), DataTypes.IntegerType,false);
-//        	Dataset<Row>pinDF = sparkSession.createDataFrame(list, structType).toDF();
-//        	zonePrices = pinDF.join(zonePrices);
-//    		
-//        	try {
-//        		
-//        		zonePrices = zonePrices.filter(zonePrices.col("leastPrice.sellingPrice").isNotNull()).
-//        		filter(zonePrices.col("leastPrice.quantity").$greater(0)).
-//        		withColumn(String.valueOf(destPin), functions.call_udf("distanceFunction", 
-//        				zonePrices.col("pincode"),
-//        				zonePrices.col(String.valueOf(destPin)),
-//        				zonePrices.col("leastPrice.sellingPrice"))).
-//        		sort(zonePrices.col(String.valueOf(destPin))).
-//        		limit(1);
-//        		
-//        		
-//        		System.out.println("App name"+sparkContext.appName());
-//        		zonePrices = zonePrices.drop(zonePrices.col(String.valueOf(destPin)));
-//			} catch (Exception e) {
-//				e.printStackTrace();
-//			}
-//    	}
     }
     
     public double getDistance() {
