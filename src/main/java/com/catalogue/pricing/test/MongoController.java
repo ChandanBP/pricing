@@ -1,6 +1,7 @@
 package com.catalogue.pricing.test;
 
 import org.bson.Document;
+import org.bson.conversions.Bson;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import java.util.Random;
 
 import com.mongodb.spark.config.ReadConfig;
 import com.mongodb.spark.config.WriteConfig;
+import com.mongodb.spark.sql.fieldTypes.api.java.ObjectId;
 
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
@@ -40,10 +42,15 @@ import com.catalogue.pricing.entities.Person;
 
 import org.apache.spark.sql.Encoder;
 import com.catalogue.pricing.repository.DistanceRepository;
+import com.mongodb.BasicDBObject;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.MongoIterable;
+import com.mongodb.client.model.Filters;
 import com.mongodb.spark.MongoSpark;
 import com.redislabs.provider.redis.ReadWriteConfig;
 import com.redislabs.provider.redis.RedisConfig;
@@ -164,16 +171,24 @@ public class MongoController implements Serializable{
     		        )).toDF();
     	
     	
-    	UserDefinedFunction  distanceFunction =  udf(new UDF3<Object,Integer,Double, Double>() {
+    	UserDefinedFunction  distanceFunction =  udf(new UDF3<Integer,Integer,Double, Double>() {
 
-    		
 			@Override
-			public Double call(Object t1,Integer t2,Double sellingPrice) throws Exception {
+			public Double call(Integer t1,Integer t2,Double sellingPrice) throws Exception {
 				
-				double distances[] = {138.15,35.77,166.93,17.09,25.44,87.66,110.54,54.55,43.21,78.12};
-            	Random random = new Random();
-            	double distance = distances[random.nextInt(distances.length)];
-				return distance+sellingPrice;
+    			final MongoClient mongoclient = MongoClients.create("mongodb://localhost");
+    			MongoDatabase database = mongoclient.getDatabase("catalogue");
+    			MongoCollection<Document>pincodeCollection = database.getCollection("pincodedistances");
+    			
+    			BasicDBObject dbObject = new BasicDBObject();
+    			dbObject.append("sourcePincode", t1);
+    			dbObject.append("destPincode", t2);
+
+    			
+    			Document document = pincodeCollection.find(dbObject).first();
+    			double distance = document.getDouble("distance");
+    			mongoclient.close();
+    			return distance+sellingPrice;
 			}
 		}, DataTypes.DoubleType);
     	distanceFunction = distanceFunction.asNonNullable();
@@ -197,7 +212,7 @@ public class MongoController implements Serializable{
     		
     		
     		
-    	    int destPincodes[] = {560079,110007,711114};
+    	    int destPincodes[] = {560079,504204,504296};
         	for(int destPin: destPincodes) { // Needs to be changed, have to fetch destination pincodes from mongodb
         		
         		List<Row>list = new ArrayList<Row>();
@@ -213,7 +228,7 @@ public class MongoController implements Serializable{
             					 filter(zonePrices.col("leastPrice.sellingPrice").isNotNull()).
             					 filter(zonePrices.col("leastPrice.quantity").$greater(0)).
             					 withColumn(String.valueOf(destPin), functions.call_udf("distanceFunction", 
-					            				zonePrices.col("pincode"),
+					            				zonePrices.col("leastPrice.pincodeNum"),
 					            				zonePrices.col(String.valueOf(destPin)),
 					            				zonePrices.col("leastPrice.sellingPrice"))).
             					 sort(zonePrices.col(String.valueOf(destPin))).
