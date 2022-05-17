@@ -6,9 +6,16 @@ import org.bson.conversions.Bson;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
+
+import static com.catalogue.pricing.commons.constants.CollectionConstants.PINCODE;
+import static com.catalogue.pricing.commons.constants.CollectionConstants.PINCODE_DISTANCES;
+import static com.catalogue.pricing.commons.constants.SparkConstants.APP_NAME;
+import static com.catalogue.pricing.commons.constants.SparkConstants.COLLECTION;
+import static com.catalogue.pricing.commons.constants.SparkConstants.SPARK_MONGO_INPUT_URI;
 import static org.apache.spark.sql.functions.struct;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -17,10 +24,12 @@ import com.mongodb.spark.config.ReadConfig;
 import com.mongodb.spark.config.WriteConfig;
 import com.mongodb.spark.sql.fieldTypes.api.java.ObjectId;
 
+import org.apache.spark.Partition;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.ForeachPartitionFunction;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.MapFunction;
 import org.apache.spark.sql.Dataset;
@@ -74,12 +83,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import static com.catalogue.pricing.commons.SparkConstants.APP_NAME;
-import static com.catalogue.pricing.commons.SparkConstants.COLLECTION;
-import static com.catalogue.pricing.commons.SparkConstants.SPARK_MONGO_INPUT_URI;
-import static com.catalogue.pricing.commons.CollectionConstants.PINCODE;
-import static com.catalogue.pricing.commons.CollectionConstants.SOUTH_PINCODE_DISTANCES;
-
 @RestController
 public class MongoController implements Serializable{
     
@@ -127,7 +130,7 @@ public class MongoController implements Serializable{
     public void category() {
     	
 		Map<String, String>overrideMap = new HashMap<>();
-    	overrideMap.put(COLLECTION, SOUTH_PINCODE_DISTANCES);
+    	overrideMap.put(COLLECTION, PINCODE_DISTANCES);
     	
     	ReadConfig readConfig = ReadConfig.create(sparkConf).withOptions(overrideMap);
     	Dataset<Row> pincodes = MongoSpark.load(sparkContext,readConfig).toDF();
@@ -151,7 +154,7 @@ public class MongoController implements Serializable{
     
     
     
-    @GetMapping(value = {"/price/product/{pid}"})
+    @GetMapping(value = {"/prices/product/{pid}"})
     public void computeMinPrice(@PathVariable String pid,@RequestParam String zone) {
     	
     	
@@ -164,7 +167,7 @@ public class MongoController implements Serializable{
     	Map<String, String>overrideMap = new HashMap<>();
     	overrideMap.put(COLLECTION, collection);
     	
-    	
+    	//{"product": "ObjectId(sdfsdf)"}
     	ReadConfig readConfig = ReadConfig.create(sparkConf).withOptions(overrideMap);
     	Dataset<Row> zonePrices = MongoSpark.load(sparkContext,readConfig).withPipeline(Collections.singletonList(
                     Document.parse("{ $match : { product : ObjectId(\""+pid+"\")}}")
@@ -191,6 +194,7 @@ public class MongoController implements Serializable{
     			return distance+sellingPrice;
 			}
 		}, DataTypes.DoubleType);
+    	
     	distanceFunction = distanceFunction.asNonNullable();
     	sparkSession.udf().register("distanceFunction", distanceFunction);
     	
@@ -213,6 +217,8 @@ public class MongoController implements Serializable{
     		
     		
     	    int destPincodes[] = {560079,504204,504296};
+    	    productDataset = productDataset.select(productDataset.col("_id"));
+    	    
         	for(int destPin: destPincodes) { // Needs to be changed, have to fetch destination pincodes from mongodb
         		
         		List<Row>list = new ArrayList<Row>();
@@ -224,6 +230,37 @@ public class MongoController implements Serializable{
         		
             	try {
             		
+//            		zonePrices.
+//					 filter(zonePrices.col("leastPrice.sellingPrice").isNotNull()).
+//					 filter(zonePrices.col("leastPrice.quantity").$greater(0)).
+//					 select(zonePrices.col("_id"),zonePrices.col("leastPrice")).foreachPartition(new ForeachPartitionFunction<Row>() {
+//			            public void call(Iterator<Row> t) throws Exception {
+//			            	
+//			            	final MongoClient mongoclient = MongoClients.create("mongodb://localhost");
+//			    			MongoDatabase database = mongoclient.getDatabase("catalogue");
+//			    			MongoCollection<Document>pincodeCollection = database.getCollection("pincodedistances");
+//			            	
+//			    			
+//			                while (t.hasNext()){
+//			
+//			                    Row row = t.next();
+//			                    int sourcePin = row.getAs("pincodeNum");
+//			                    int dPin = destPin;
+//			                    Double sellingPrice = row.getAs("leastPrice.sellingPrice");
+//			                    
+//			                    BasicDBObject dbObject = new BasicDBObject();
+//			        			dbObject.append("sourcePincode", sourcePin);
+//			        			dbObject.append("destPincode", dPin);
+//
+//			        			
+//			        			Document document = pincodeCollection.find(dbObject).first();
+//			        			double distance = document.getDouble("distance");
+//			        			double zonePrice = sellingPrice+(distance*1.5);
+//			                }
+//			                mongoclient.close();
+//			            }
+//					 });
+            		
             		zonePrices = zonePrices.
             					 filter(zonePrices.col("leastPrice.sellingPrice").isNotNull()).
             					 filter(zonePrices.col("leastPrice.quantity").$greater(0)).
@@ -234,34 +271,29 @@ public class MongoController implements Serializable{
             					 sort(zonePrices.col(String.valueOf(destPin))).
             					 limit(1);
             		
-            		zonePrices.show();
             		Double minPrice = zonePrices.first().getAs(String.valueOf(destPin));
-            		
-            		
-            		productDataset = productDataset.select(productDataset.col("_id"));
-            		
-            		String colName = "prices."+destPin+"";
-            		StructType recordType = new StructType();
-            		recordType = recordType.add(colName, details, false);
-            		
-            		
-            		List<Row>l = new ArrayList<>();
-            		l.add(RowFactory.create(RowFactory.create("FALCON",minPrice)));
-            		Dataset<Row>df = sparkSession.createDataFrame(l, recordType).toDF();
-            		productDataset = productDataset.join(df);
-            		
+//            		
+//            		String colName = "prices."+destPin+"";
+//            		StructType recordType = new StructType();
+//            		recordType = recordType.add(colName, details, false);
+//            		
+//            		
+//            		List<Row>l = new ArrayList<>();
+//            		l.add(RowFactory.create(RowFactory.create("FALCON",minPrice)));
+//            		Dataset<Row>df = sparkSession.createDataFrame(l, recordType).toDF();
+//            		productDataset = productDataset.join(df);
+//            		
             		Map<String, String> writeOverrides = new HashMap<String, String>();
             		writeOverrides.put("spark.mongodb.output.uri", "mongodb://127.0.0.1/catalogue.productinfos");
             		writeOverrides.put("collection", "productinfos");
             	    writeOverrides.put("writeConcern.w", "majority");
             	    writeOverrides.put("replaceDocument", "false");
-            	    
+//            	    
             	    WriteConfig writeConfig = WriteConfig.create(sparkContext).withOptions(writeOverrides);
-            	    MongoSpark.save(productDataset,writeConfig);
+//            	    MongoSpark.save(productDataset,writeConfig);
             		
             		
-            		zonePrices = zonePrices.drop(zonePrices.col(String.valueOf(destPin)));
-            		
+            		zonePrices = zonePrices.drop("destPin");
     			} catch (Exception e) {
     				e.printStackTrace();
     			}
@@ -307,7 +339,7 @@ public class MongoController implements Serializable{
     	MapType mapType = new MapType(DataTypes.StringType,DataTypes.StringType,false);
     	
     	Map<String, String>overrideMap = new HashMap<>();
-    	overrideMap.put(COLLECTION, SOUTH_PINCODE_DISTANCES);
+    	overrideMap.put(COLLECTION, PINCODE_DISTANCES);
     	
     	ReadConfig readConfig = ReadConfig.create(sparkConf).withOptions(overrideMap);
     	System.out.println("started");

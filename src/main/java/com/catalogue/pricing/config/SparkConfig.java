@@ -1,5 +1,8 @@
 package com.catalogue.pricing.config;
 
+import static com.catalogue.pricing.commons.constants.SparkConstants.APP_NAME;
+import static com.catalogue.pricing.commons.constants.SparkConstants.SPARK_MONGO_INPUT_URI;
+
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.SparkSession;
@@ -9,9 +12,6 @@ import org.springframework.context.annotation.Configuration;
 
 import com.redislabs.provider.redis.RedisConfig;
 import com.redislabs.provider.redis.RedisContext;
-
-import static com.catalogue.pricing.commons.SparkConstants.SPARK_MONGO_INPUT_URI;
-import static com.catalogue.pricing.commons.SparkConstants.APP_NAME;
 
 @Configuration
 public class SparkConfig {
