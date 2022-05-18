@@ -42,7 +42,6 @@ public class SparkUtils {
 		connectionBuilder.append(".");
 		connectionBuilder.append(PRODUCT_INFO);
 		
-		System.out.println(connectionBuilder.toString());
 		writeOverrides.put(SPARK_MONGO_OUTPUT_URI, connectionBuilder.toString());
 		writeOverrides.put(COLLECTION, PRODUCT_INFO);
 	    writeOverrides.put(WRITE_CONCERN, "majority");

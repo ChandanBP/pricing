@@ -19,19 +19,18 @@ public class PricingController {
 	@Autowired
 	PricingService pricingService;
 	
-	@GetMapping(value = {"/price/product/{pid}"})
+	@GetMapping(value = {"/price/product/{pid}/{zone}/{destPincode}"})
 	public ResponseEntity<String> computeMin(@PathVariable String pid,
-			               @RequestParam Zone zone,
-						   @RequestParam int destPincode) {
+											 @PathVariable Zone zone,
+											 @PathVariable int destPincode) {
 		
 		pricingService.computeMin(pid,zone, destPincode);
 		return new ResponseEntity<String>("Computing min price...", HttpStatus.OK);
 	}
 	
-	@GetMapping(value = {"/price/log"})
-	public void testLog() {
-		System.out.println("inside log");
-		Logger logger = LoggerFactory.getLogger(PricingController.class);
-		logger.info("checking log");
+	@GetMapping(value = {"/price/product/{pid}/{zone}"})
+	public ResponseEntity<String> computeMinForZone(@PathVariable String pid,@PathVariable Zone zone) {
+		pricingService.computeMinForZone(pid, zone);
+		return new ResponseEntity<String>("Computing min price...", HttpStatus.OK);
 	}
 }
