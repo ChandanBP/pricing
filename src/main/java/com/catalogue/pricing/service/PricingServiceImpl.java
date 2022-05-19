@@ -228,9 +228,6 @@ public class PricingServiceImpl implements PricingService, Serializable {
 		        )).toDF().select(functions.col("pincode"));
 		
 		
-		List<Row>destPincodes = pincodes.collectAsList();
-		if(destPincodes==null||destPincodes.size()==0)return;
-		
 		/* Fetch pincode prices for this product from respective zone prices collection
 		 Generate collection name */
 		String zoneStr = zone.name().toLowerCase();
@@ -244,13 +241,6 @@ public class PricingServiceImpl implements PricingService, Serializable {
 		                Document.parse("{ $match : { product : ObjectId(\""+productId+"\")}}")
 				        )).toDF().select(functions.col(ColumnConstants.LEAST_PRICE));
 		
-		// Fetch product info document
-		readConfig = SparkUtils.getReadConfig(PRODUCT_INFO,sparkConf);
-		Dataset<Row>productInfoDataset = MongoSpark.load(sparkContext,readConfig).withPipeline(Collections.singletonList(
-                Document.parse("{ $match : { _id : ObjectId(\""+productId+"\")}}")
-		        )).toDF().limit(1);
-		
-		HashMap<Integer, Long>map = new HashMap();
 		List<Bson>bsons = new LinkedList<>();
 		
 		Long start = System.currentTimeMillis();
@@ -266,9 +256,9 @@ public class PricingServiceImpl implements PricingService, Serializable {
 				public Iterator<Tuple2<Row, Row>> call(Iterator<Tuple2<Row, Row>> t)
 						throws Exception {
 					
-					MongoClient mongoclient = MongoClients.create("mongodb://localhost");
-	    			MongoDatabase database = mongoclient.getDatabase("catalogue");
-	    			MongoCollection<Document>pincodeCollection = database.getCollection("pincodedistances");
+//					MongoClient mongoclient = MongoClients.create("mongodb://localhost");
+//	    			MongoDatabase database = mongoclient.getDatabase("catalogue");
+//	    			MongoCollection<Document>pincodeCollection = database.getCollection("pincodedistances");
 	    			
 	    			List<Tuple2<Row,Row>> list =new LinkedList<>();
 	    			while (t.hasNext()) {
@@ -284,7 +274,6 @@ public class PricingServiceImpl implements PricingService, Serializable {
 						Integer destPincode = pricesRow1.getAs("pincodeNum");
 						
 						
-						
 						if(buyingPrice!=null && quantity>0) {
 			    			BasicDBObject dbObject = new BasicDBObject();
 			    			dbObject.append("sourcePincode", srcPincode);
@@ -293,15 +282,15 @@ public class PricingServiceImpl implements PricingService, Serializable {
 			    			//System.out.println(srcPincode+","+destPincode);
 			    			Number distance;
 			    			
-			    			if(srcPincode.intValue()==destPincode.intValue()) {
-			    				distance = 0;
-			    			}else {
-			    				Document document = pincodeCollection.find(dbObject).first();
-			    				distance = document.get("distance", Number.class); 
-			    			}
+//			    			if(srcPincode.intValue()==destPincode.intValue()) {
+//			    				distance = 0;
+//			    			}else {
+//			    				Document document = pincodeCollection.find(dbObject).first();
+//			    				distance = document.get("distance", Number.class); 
+//			    			}
 			    			
 			    			double margin = 0.02;
-			    			Long finalPrice = Math.round(buyingPrice+(margin*buyingPrice)+distance.doubleValue());
+			    			Long finalPrice = Math.round(buyingPrice+(margin*buyingPrice)+35.99);
 			    			
 			    			//Row finalPriceRow = RowFactory.create(finalPrice,quantity);
 			    			StructType structType = new StructType();
@@ -401,5 +390,12 @@ public class PricingServiceImpl implements PricingService, Serializable {
 //   	    MongoSpark.save(productInfoDataset,writeConfig);
 		pincodePrices = pincodePrices.drop("destPin").drop("finalPrice");
 		return minPrice;
+	}
+	
+	@Override
+	public void sparkDetails() {
+		// TODO Auto-generated method stub
+		System.out.println(String.format("Number of executors %d", sparkContext.sc().getExecutorMemoryStatus().size()));
+		System.out.println(Runtime.getRuntime().availableProcessors());
 	}
 }

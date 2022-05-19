@@ -6,4 +6,5 @@ public interface PricingService {
 	
 	void computeMin(String productId,Zone zone,Integer destPincode);
 	void computeMinForZone(String productId,Zone zone);
+	void sparkDetails();
 }

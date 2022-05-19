@@ -52,47 +52,10 @@ public class PricingController {
 		return new ResponseEntity<String>("Computing min price...", HttpStatus.OK);
 	}
 	
-	@GetMapping(value = {"/test"})
+	@GetMapping(value = {"/spark"})
 	public ResponseEntity<String> test() {
 		
-		CodecRegistry pojoCodecRegistry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(), 
-				fromProviders(PojoCodecProvider.builder().automatic(true).build()));
-		final MongoClient mongoclient = MongoClients.create("mongodb://localhost");
-		MongoDatabase database = mongoclient.getDatabase("catalogue").withCodecRegistry(pojoCodecRegistry);
-		
-		MongoCollection<Document>pincodeCollection = database.getCollection("pincodedistances");
-		MongoCollection<Document>productInfoCollection = database.getCollection("productinfos");
-		
-		MinPrice minPrice1 = new MinPrice();
-		minPrice1.setPrice(2000L);
-		minPrice1.setQuantity(10);
-		
-		MinPrice minPrice2 = new MinPrice();
-		minPrice2.setPrice(3000L);
-		minPrice2.setQuantity(15);
-		
-		
-		List<Bson>bsons = new LinkedList<>();
-		for(int i=0;i<2;i++) {
-			if(i==0) {
-				bsons.add(Updates.set("prices.560079", minPrice1));
-			}else {
-				bsons.add(Updates.set("prices.560001", minPrice2));
-			}
-		}
-
-		Bson updates = Updates.combine(bsons);
-		
-		
-		try {
-			UpdateResult result = productInfoCollection.updateOne(Filters.eq("_id", new ObjectId("6242b346ba42fdc0fab2bc8a")), updates);
-			System.out.println(result.getModifiedCount());
-			
-		} catch (Exception e) {
-			
-		}
-        
-        
+		pricingService.sparkDetails();
 		return new ResponseEntity<String>("Computing min price...", HttpStatus.OK);
 	}
 }
