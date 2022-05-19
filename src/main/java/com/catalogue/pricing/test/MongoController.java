@@ -302,7 +302,7 @@ public class MongoController implements Serializable{
 		}
     }
     
-    @GetMapping("/test")
+    @GetMapping("/test1")
     @Async
     public void test() {
     	MapType mapType = new MapType(DataTypes.StringType,DataTypes.StringType,false);

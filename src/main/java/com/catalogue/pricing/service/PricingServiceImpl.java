@@ -2,7 +2,6 @@ package com.catalogue.pricing.service;
 
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -17,9 +16,12 @@ import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import org.bson.Document;
+import org.bson.codecs.configuration.CodecRegistry;
+import org.bson.codecs.pojo.PojoCodecProvider;
+import org.bson.conversions.Bson;
+import org.bson.types.ObjectId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.sparkproject.jetty.client.ProxyProtocolClientConnectionFactory.V2;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,8 @@ import static com.catalogue.pricing.commons.constants.CollectionConstants.ZONE_P
 import static com.catalogue.pricing.commons.constants.CollectionConstants.PRODUCT_INFO;
 import static com.catalogue.pricing.commons.constants.ColumnConstants.ID;
 import static org.apache.spark.sql.functions.udf;
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -43,12 +47,17 @@ import javax.annotation.PostConstruct;
 
 import com.catalogue.pricing.commons.constants.ColumnConstants;
 import com.catalogue.pricing.commons.constants.SparkUtils;
+import com.catalogue.pricing.entities.MinPrice;
 import com.catalogue.pricing.entities.Zone;
 import com.mongodb.BasicDBObject;
+import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Updates;
+import com.mongodb.client.result.UpdateResult;
 import com.mongodb.spark.MongoSpark;
 import com.mongodb.spark.config.ReadConfig;
 import com.mongodb.spark.config.WriteConfig;
@@ -69,6 +78,9 @@ public class PricingServiceImpl implements PricingService, Serializable {
 
 	@Autowired
 	transient SparkSession sparkSession;
+	
+	@Autowired
+	transient MongoClient mongoClient;
 
 	@Async
 	@Override
@@ -239,19 +251,24 @@ public class PricingServiceImpl implements PricingService, Serializable {
 		        )).toDF().limit(1);
 		
 		HashMap<Integer, Long>map = new HashMap();
+		List<Bson>bsons = new LinkedList<>();
 		
 		Long start = System.currentTimeMillis();
 		
 		try {
+			StructType details = new StructType(new StructField[] {
+		              new StructField("price", DataTypes.LongType, false, Metadata.empty()) });
+			
+			
 			pincodes.javaRDD().cartesian(pincodePrices.javaRDD()).mapPartitionsToPair(new PairFlatMapFunction<Iterator<Tuple2<Row,Row>>, Row, Row>() {
 
 				@Override
 				public Iterator<Tuple2<Row, Row>> call(Iterator<Tuple2<Row, Row>> t)
 						throws Exception {
 					
-//					MongoClient mongoclient = MongoClients.create("mongodb://localhost");
-//	    			MongoDatabase database = mongoclient.getDatabase("catalogue");
-//	    			MongoCollection<Document>pincodeCollection = database.getCollection("pincodedistances");
+					MongoClient mongoclient = MongoClients.create("mongodb://localhost");
+	    			MongoDatabase database = mongoclient.getDatabase("catalogue");
+	    			MongoCollection<Document>pincodeCollection = database.getCollection("pincodedistances");
 	    			
 	    			List<Tuple2<Row,Row>> list =new LinkedList<>();
 	    			while (t.hasNext()) {
@@ -274,22 +291,17 @@ public class PricingServiceImpl implements PricingService, Serializable {
 			    			dbObject.append("destPincode", destPincode);
 			    			
 			    			//System.out.println(srcPincode+","+destPincode);
-			    			//Number distance;
+			    			Number distance;
 			    			
-							double distances[] = {35.77,17.09,138.15,166.93,68.4};
-							Random random = new Random();
-							
-							double distance = distances[random.nextInt(distances.length)];
-			    			
-//			    			if(srcPincode.intValue()==destPincode.intValue()) {
-//			    				distance = 0;
-//			    			}else {
-//			    				Document document = pincodeCollection.find(dbObject).first();
-//			    				distance = document.get("distance", Number.class); 
-//			    			}
+			    			if(srcPincode.intValue()==destPincode.intValue()) {
+			    				distance = 0;
+			    			}else {
+			    				Document document = pincodeCollection.find(dbObject).first();
+			    				distance = document.get("distance", Number.class); 
+			    			}
 			    			
 			    			double margin = 0.02;
-			    			Long finalPrice = Math.round(buyingPrice+(margin*buyingPrice)+distance);
+			    			Long finalPrice = Math.round(buyingPrice+(margin*buyingPrice)+distance.doubleValue());
 			    			
 			    			//Row finalPriceRow = RowFactory.create(finalPrice,quantity);
 			    			StructType structType = new StructType();
@@ -312,41 +324,30 @@ public class PricingServiceImpl implements PricingService, Serializable {
 				
 				if(finalPrice1.longValue()<finalPrice2.longValue())return priceRow1;
 				return priceRow2;
-			}).take(1).forEach(tuple2->{
-				System.out.println(tuple2._1.getInt(0)+","+tuple2._2.getAs("finalPrice"));
-			}) ;
+			}).collect().forEach(tuple2->{
+				
+				MinPrice minPrice = new MinPrice();
+				minPrice.setPrice(tuple2._2.getAs("finalPrice"));
+				minPrice.setQuantity(tuple2._2.getAs("quantity"));
+				
+				bsons.add(Updates.set("prices."+tuple2._1.getInt(0), minPrice));
+		        //System.out.println(tuple2._1.getInt(0)+","+tuple2._2.getAs("finalPrice"));
+		      });
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
 		
-//		pincodes.javaRDD().cartesian(pincodePrices.javaRDD()).reduceByKey(new Function2<Row, Row, Row>() {
-//			
-//			@Override
-//			public Row call(Row row1, Row row2) throws Exception {
-//				
-//				Row object1 = (Row)row1.getAs("leastPrice");
-//				Integer buyingPrice1 = object1.getAs("buyingPrice");
-//				Integer quantity1 = object1.getAs("quantity");
-//				
-//				Row object2 = (Row)row2.getAs("leastPrice");
-//				Integer buyingPrice2 = object2.getAs("buyingPrice");
-//				Integer quantity2 = object2.getAs("quantity");
-//				if(buyingPrice1!=null && quantity1>0 && buyingPrice2!=null && quantity2>0) {
-//					if(buyingPrice1<=buyingPrice2)return row1;
-//					else return row2;
-//				}
-//				return null;
-//			}
-//		}).take(20).forEach(tuple -> {
-//			System.out.println(tuple._1.getInt(0)+","+tuple._2.get(0));
-//		});
+		// Write to mongodb
+		CodecRegistry pojoCodecRegistry = fromRegistries(MongoClientSettings.getDefaultCodecRegistry(), 
+				fromProviders(PojoCodecProvider.builder().automatic(true).build()));
+		final MongoClient mongoclient = MongoClients.create("mongodb://localhost");
+		MongoDatabase database = mongoclient.getDatabase("catalogue").withCodecRegistry(pojoCodecRegistry);
+		MongoCollection<Document>productInfoCollection = database.getCollection("productinfos");
+		Bson updates = Updates.combine(bsons);
+		UpdateResult result = productInfoCollection.updateOne(Filters.eq("_id", new ObjectId(productId)), updates);
+		System.out.println(result.getModifiedCount());
+		
 		System.out.println((System.currentTimeMillis())-start);
-		
-//		pincodes.javaRDD().cartesian(pincodePrices.javaRDD()).take(1).forEach(tuple -> {
-//			System.out.println(tuple._1.getInt(0)+","+tuple._2.get(0));
-//		});
-		
-
 		
 		//pincodes.rdd().cartesian(pincodePrices.rdd(), null).ta
 		
