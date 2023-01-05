@@ -52,10 +52,8 @@ public class PricingController {
 		return new ResponseEntity<String>("Computing min price...", HttpStatus.OK);
 	}
 	
-	@GetMapping(value = {"/spark"})
+	@GetMapping(value = {"/test"})
 	public ResponseEntity<String> test() {
-		
-		pricingService.sparkDetails();
-		return new ResponseEntity<String>("Computing min price...", HttpStatus.OK);
+		return new ResponseEntity<String>("OK", HttpStatus.OK);
 	}
 }
